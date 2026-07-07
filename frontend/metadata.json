@@ -1,0 +1,6 @@
+{
+  "name": "Credit Risk Predictor",
+  "description": "AI-powered loan default risk assessment using automated document extraction, manual financial profiling, batch CSV processing, and SHAP explainability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
