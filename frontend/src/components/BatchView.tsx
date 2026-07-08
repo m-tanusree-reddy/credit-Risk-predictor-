@@ -18,22 +18,28 @@ interface BatchViewProps {
   onAddAssessmentsBatch: (records: AssessmentRecord[]) => void;
   onSelectAssessment: (record: AssessmentRecord) => void;
   onNavigate: (view: ViewType) => void;
+  batchResults: AssessmentRecord[];
+  setBatchResults: (results: AssessmentRecord[]) => void;
+  fileName: string | null;
+  setFileName: (name: string | null) => void;
 }
 
 export default function BatchView({ 
   onAddAssessmentsBatch, 
   onSelectAssessment, 
-  onNavigate 
+  onNavigate,
+  batchResults,
+  setBatchResults,
+  fileName,
+  setFileName
 }: BatchViewProps) {
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [batchResults, setBatchResults] = useState<AssessmentRecord[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const fileInputRef = useRef<HTMLInputElement>(null);
-
+  
   // Download a beautiful, ready-to-use sample CSV
   const handleDownloadSampleCsv = () => {
     const csvContent = "Name,Age,MonthlyIncome,Dependents,DebtRatio,OpenCreditLines,RealEstateLoans,CreditUtilization,Late3059,Late6089,Late90Plus\n" +
@@ -79,58 +85,74 @@ export default function BatchView({
           income: headers.findIndex(h => h.includes("income") || h.includes("salary")),
           dependents: headers.findIndex(h => h.includes("dependent") || h.includes("dep")),
           debtRatio: headers.findIndex(h => h.includes("debt") || h.includes("ratio")),
-          creditLines: headers.findIndex(h => h.includes("line") || h.includes("open") || h.includes("account")),
+          creditLines: headers.findIndex(h => h.includes("open") || (h.includes("line") && !h.includes("revolving") && !h.includes("real") && !h.includes("estate"))),
           realEstateLoans: headers.findIndex(h => h.includes("real") || h.includes("estate") || h.includes("mortgage")),
-          utilization: headers.findIndex(h => h.includes("util") || h.includes("percent")),
+          utilization: headers.findIndex(h => h.includes("util") || h.includes("revolving") || h.includes("percent")),
           late30: headers.findIndex(h => h.includes("30") || h.includes("late30")),
           late60: headers.findIndex(h => h.includes("60") || h.includes("late60")),
           late90: headers.findIndex(h => h.includes("90") || h.includes("late90") || h.includes("severe")),
         };
 
-        // Basic verification
-        if (colMap.name === -1) {
-          throw new Error("Missing required 'Name' column in CSV.");
+        // Basic verification (verify that we have parsed some headers)
+        if (headers.length === 0) {
+          throw new Error("CSV file does not contain any headers.");
         }
 
-        const assessmentsToCreate: AssessmentRecord[] = [];
         const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
 
-        // Process rows
-        for (let i = 1; i < lines.length; i++) {
-          const rowValues = lines[i].split(",").map(val => val.trim().replace(/^["']|["']$/g, ""));
-          if (rowValues.length < headers.length) continue; // skip broken rows
-
-          const applicantName = rowValues[colMap.name] || `Applicant #${i}`;
-          
-          const rawData = {
-            age: colMap.age !== -1 ? Number(rowValues[colMap.age]) : 45,
-            income: colMap.income !== -1 ? Number(rowValues[colMap.income]) : 6000,
-            dependents: colMap.dependents !== -1 ? Number(rowValues[colMap.dependents]) : 0,
-            debtRatio: colMap.debtRatio !== -1 ? Number(rowValues[colMap.debtRatio]) : 0.35,
-            openCreditLines: colMap.creditLines !== -1 ? Number(rowValues[colMap.creditLines]) : 8,
-            realEstateLoans: colMap.realEstateLoans !== -1 ? Number(rowValues[colMap.realEstateLoans]) : 1,
-            creditUtilization: colMap.utilization !== -1 ? Number(rowValues[colMap.utilization]) : 30.0,
-            late3059: colMap.late30 !== -1 ? Number(rowValues[colMap.late30]) : 0,
-            late6089: colMap.late60 !== -1 ? Number(rowValues[colMap.late60]) : 0,
-            late90Plus: colMap.late90 !== -1 ? Number(rowValues[colMap.late90]) : 0,
-          };
-
-          const validated = validateApplicantData(rawData);
-          const prediction = await predictApplicant(validated);
-          const batchId = `APP-B${1000 + i}`;
-
-          assessmentsToCreate.push({
-            id: batchId,
-            applicant: {
-              id: batchId,
-              name: applicantName,
-              ...validated,
-              date: timestamp
-            },
-            prediction,
-            date: timestamp
-          });
+        // Cap data rows to 500 for UI/network speed. Kaggle has 150k lines.
+        const maxDataRows = 500;
+        const totalRows = lines.length - 1;
+        if (totalRows > maxDataRows) {
+          alert(`The uploaded file contains ${totalRows.toLocaleString()} rows. To prevent network congestion and browser crash, only the first ${maxDataRows} records will be processed.`);
         }
+
+        const dataLines = lines.slice(1, maxDataRows + 1);
+
+        // Map and validate raw data first
+        const rawRows = dataLines.map((line, idx) => {
+          const rowValues = line.split(",").map(val => val.trim().replace(/^["']|["']$/g, ""));
+          const i = idx + 1; // row index
+          return {
+            name: (colMap.name !== -1 && rowValues[colMap.name]) ? rowValues[colMap.name] : `Applicant #${i}`,
+            rawData: {
+              age: colMap.age !== -1 ? Number(rowValues[colMap.age]) : 45,
+              income: colMap.income !== -1 ? Number(rowValues[colMap.income]) : 6000,
+              dependents: colMap.dependents !== -1 ? Number(rowValues[colMap.dependents]) : 0,
+              debtRatio: colMap.debtRatio !== -1 ? Number(rowValues[colMap.debtRatio]) : 0.35,
+              openCreditLines: colMap.creditLines !== -1 ? Number(rowValues[colMap.creditLines]) : 8,
+              realEstateLoans: colMap.realEstateLoans !== -1 ? Number(rowValues[colMap.realEstateLoans]) : 1,
+              creditUtilization: colMap.utilization !== -1 ? Number(rowValues[colMap.utilization]) : 30.0,
+              late3059: colMap.late30 !== -1 ? Number(rowValues[colMap.late30]) : 0,
+              late6089: colMap.late60 !== -1 ? Number(rowValues[colMap.late60]) : 0,
+              late90Plus: colMap.late90 !== -1 ? Number(rowValues[colMap.late90]) : 0,
+            }
+          };
+        });
+
+        const validatedRows = rawRows.map(r => ({
+          name: r.name,
+          validated: validateApplicantData(r.rawData)
+        }));
+
+        // Execute all predictions concurrently using Promise.all
+        const assessmentsToCreate = await Promise.all(
+          validatedRows.map(async (row, idx) => {
+            const batchId = `APP-B${1000 + idx + 1}`;
+            const prediction = await predictApplicant(row.validated);
+            return {
+              id: batchId,
+              applicant: {
+                id: batchId,
+                name: row.name,
+                ...row.validated,
+                date: timestamp
+              },
+              prediction,
+              date: timestamp
+            } as AssessmentRecord;
+          })
+        );
 
         if (assessmentsToCreate.length === 0) {
           throw new Error("No valid applicant rows were processed from the CSV.");
@@ -374,20 +396,40 @@ export default function BatchView({
               >
                 &lt;
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  id={`btn-batch-page-${page}`}
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`px-2.5 py-1 rounded border transition ${
-                    currentPage === page 
-                      ? "bg-blue-600 border-blue-600 text-white" 
-                      : "bg-[#1C1C1F] border-white/5 hover:bg-white/5 text-slate-300"
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
+              {(() => {
+                const range: (number | string)[] = [];
+                const delta = 2;
+                for (let i = 1; i <= totalPages; i++) {
+                  if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                    range.push(i);
+                  } else if (range[range.length - 1] !== "...") {
+                    range.push("...");
+                  }
+                }
+                return range.map((page, idx) => {
+                  if (page === "...") {
+                    return (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-slate-600 select-none">
+                        ...
+                      </span>
+                    );
+                  }
+                  return (
+                    <button
+                      id={`btn-batch-page-${page}`}
+                      key={`page-${page}`}
+                      onClick={() => setCurrentPage(page as number)}
+                      className={`px-2.5 py-1 rounded border transition cursor-pointer ${
+                        currentPage === page 
+                          ? "bg-blue-600 border-blue-600 text-white" 
+                          : "bg-[#1C1C1F] border-white/5 hover:bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                });
+              })()}
               <button
                 id="btn-batch-next"
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}

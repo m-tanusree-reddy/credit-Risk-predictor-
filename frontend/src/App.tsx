@@ -19,6 +19,10 @@ export default function App() {
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<AssessmentRecord | null>(null);
 
+  // Lifted Batch Processing State (keeps data alive when switching tabs)
+  const [batchResults, setBatchResults] = useState<AssessmentRecord[]>([]);
+  const [batchFileName, setBatchFileName] = useState<string | null>(null);
+
   // Sync assessments with LocalStorage
   useEffect(() => {
     const cached = localStorage.getItem("credit_assessments_records");
@@ -26,12 +30,11 @@ export default function App() {
       try {
         setAssessments(JSON.parse(cached));
       } catch (err) {
-        setAssessments(getInitialAssessments());
+        setAssessments([]);
       }
     } else {
-      const initial = getInitialAssessments();
-      setAssessments(initial);
-      localStorage.setItem("credit_assessments_records", JSON.stringify(initial));
+      setAssessments([]);
+      localStorage.setItem("credit_assessments_records", JSON.stringify([]));
     }
   }, []);
 
@@ -50,6 +53,11 @@ export default function App() {
   const handleAddAssessmentsBatch = (records: AssessmentRecord[]) => {
     const updated = [...records, ...assessments];
     saveAssessments(updated);
+  };
+
+  const handleClearHistory = () => {
+    saveAssessments([]);
+    setSelectedRecord(null);
   };
 
   // Select an assessment and jump to Explainability
@@ -163,6 +171,7 @@ export default function App() {
                 assessments={assessments}
                 onSelectAssessment={handleSelectAssessment}
                 onNavigate={(v) => setActiveView(v)}
+                onClearHistory={handleClearHistory}
               />
             )}
 
@@ -178,6 +187,10 @@ export default function App() {
                 onAddAssessmentsBatch={handleAddAssessmentsBatch}
                 onSelectAssessment={handleSelectAssessment}
                 onNavigate={(v) => setActiveView(v)}
+                batchResults={batchResults}
+                setBatchResults={setBatchResults}
+                fileName={batchFileName}
+                setFileName={setBatchFileName}
               />
             )}
 

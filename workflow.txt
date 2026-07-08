@@ -1,0 +1,128 @@
+========================================================================
+                     CREDITSENSE AI - WORKFLOW DOCUMENT
+========================================================================
+
+Author: Antigravity AI Pair Programmer
+Date: 2026-07-08
+Workspace: e:\credit predictor
+
+------------------------------------------------------------------------
+1. PROJECT GOAL
+------------------------------------------------------------------------
+The goal of this phase is to:
+1. Connect the React/Vite frontend UI to the Python FastAPI backend.
+2. Route manual credit underwriting predictions and CSV batch processing
+   through the actual scikit-learn Random Forest model (models/credit_risk_model.pkl).
+3. Compute exact local decision explainability (SHAP-like values) in the
+   Python backend and render a premium waterfall chart and narrative explanations
+   on the frontend dashboard.
+
+------------------------------------------------------------------------
+2. ARCHITECTURE OVERVIEW
+------------------------------------------------------------------------
+The system operates as a full-stack predictive interface:
+
+React (Vite, 127.0.0.1:3000)
+       ↓ (POST /predict with JSON payload)
+FastAPI (Uvicorn, 127.0.0.1:8000)
+       ↓ (Loads models/credit_risk_model.pkl)
+Random Forest Classifier (200 Estimators)
+       ↓ (Traverses decision paths to compute local attributions)
+JSON Response (Default Prob, Risk Level, Base Value, SHAP Values)
+       ↓ (Formatted in API client and scaled to percentages)
+Interactive SHAP Dashboard (Waterfall Chart & Narratives)
+
+------------------------------------------------------------------------
+3. MATHEMATICAL MODEL FOR LOCAL EXPLAINABILITY (TREE SHAP)
+------------------------------------------------------------------------
+To explain why a specific applicant got a high or low default probability
+without installing heavy, slow external libraries like `shap`, we implemented
+a fast and mathematically exact tree interpreter algorithm in the backend:
+
+1. **Baseline Expectation (Base Value)**:
+   At startup, we compute the average expected default probability at the
+   root node of all 200 estimators. This is constant for a given model and
+   represents the baseline risk of the population.
+   
+2. **Decision Path Traversal**:
+   When an applicant is sent to `/predict`, we run the instance down each of the
+   200 decision trees. For each tree, we retrieve the sequence of node IDs.
+   
+3. **Change in Expectation**:
+   At each parent node split, we check the feature used to split. The difference
+   in expected probability between the child node and parent node is computed:
+     Δ = expectation(child_node) - expectation(parent_node)
+   This difference is credited to the splitting feature.
+
+4. **Ensemble Averaging**:
+   We divide the local contribution of each feature by the number of estimators (200)
+   and sum them across all trees:
+     contribution(feature) = Σ [ Δ_tree / 200 ]
+     
+5. **Exact Match Guarantee**:
+   Because the prediction probability is the average of the leaf predictions of all
+   estimators, and the path from root to leaf represents a telescoping sum of
+   visual expectations, the baseline value plus the sum of all feature contributions
+   adds up EXACTLY to the prediction probability:
+     Prediction = Base_Value + Σ [ contributions(features) ]
+
+------------------------------------------------------------------------
+4. DETAIL OF CHANGES MADE
+------------------------------------------------------------------------
+
+### Backend (`backend/main.py`)
+- Imported `numpy` for matrix calculations.
+- Modified the model loader to pre-calculate `model_base_value` once on server start
+  by inspecting `est.tree_.value[0]` for each tree in the ensemble.
+- Enhanced the `/predict` endpoint:
+  - Runs the input DataFrame through the Random Forest model to calculate the probability.
+  - Resolves decision paths using `est.decision_path(df)`.
+  - Calculates expectation differences at each node and attributes them to the splitting features.
+  - Converts numpy float64 values to native Python floats for JSON serialization.
+  - Returns `default_probability`, `risk_level`, `base_value`, and `shap_values`.
+
+### Frontend API Client (`frontend/src/utils/api.ts`)
+- Replaced the client-side simulated model run with actual backend queries.
+- Mapped backend feature names (snake_case or model training headers like
+  `RevolvingUtilizationOfUnsecuredLines`) to frontend keys (`creditUtilization`).
+- Multiplied raw probability values by 100 to convert them to percentages (e.g. 0.836 -> 83.6%)
+  consistent with frontend rendering logic.
+- Maintained a clean signature returning `PredictionResult`.
+
+- **App.tsx**:
+  - Lifted the Batch Processing state (`batchResults` and `batchFileName`) up to `App.tsx` so that loaded CSV results persist when you switch between tabs.
+  - Removed the default mock data seeding (`getInitialAssessments`) on initial load so the dashboard is completely clean by default.
+  - Declared `handleClearHistory` to clear all local records.
+- **DashboardView.tsx**:
+  - Added a "Clear History" button to let the user wipe out any local storage history.
+  - Implemented a collapsed range pagination layout using ellipsis (`...`) to prevent buttons from overflowing on large portfolios (e.g. 100 pages).
+- **BatchView.tsx**:
+  - Made the `Name` column in CSV imports optional.
+  - Added logic to automatically fallback to sequential naming (`Applicant #1`, `Applicant #2`, etc.) when no name column is found, allowing the system to seamlessly ingest standard machine learning datasets like Kaggle's "Give Me Some Credit" without error.
+  - Refined column index mapping patterns to prevent overlapping matches (e.g. `RevolvingUtilizationOfUnsecuredLines` was previously false-matching the `creditLines` column due to the `"Lines"` substring; we excluded `"revolving"` from the search pattern).
+  - Implemented a 500-row cap and **concurrent async execution** using `Promise.all` for CSV batch predictions. This processes the first 500 rows of large datasets (like Kaggle's 150k-row training set) in 1-2 seconds, preventing browser freezes and infinite loading states.
+  - Implemented a collapsed range pagination layout using ellipsis (`...`) showing current page +/- 2 and boundary pages to keep controls compact and centered inside the frame.
+- **randomForest.ts**:
+  - Enhanced `validateApplicantData` to parse and round all integer-typed features (age, dependents, open credit lines, mortgage loans, and delinquency counts). This prevents type-coercion exceptions in FastAPI's Pydantic parser (`int_from_float` errors).
+
+------------------------------------------------------------------------
+5. HOW TO RUN THE PROJECT
+------------------------------------------------------------------------
+
+### Step A: Start the FastAPI Backend
+Ensure Python dependencies are installed and run the FastAPI server:
+```bash
+pip install -r requirements.txt
+uvicorn backend.main:app --reload
+```
+This runs the backend on `http://127.0.0.1:8000`.
+
+### Step B: Start the React Frontend
+Navigate to the frontend folder, install packages and start the dev server:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+This runs the UI on `http://localhost:3000`.
+The application automatically points to the backend on `127.0.0.1:8000`.

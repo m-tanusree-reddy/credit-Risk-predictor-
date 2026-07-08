@@ -11,19 +11,22 @@ import {
   FileText, 
   ArrowRight,
   Eye,
-  Plus
+  Plus,
+  Trash2
 } from "lucide-react";
 
 interface DashboardViewProps {
   assessments: AssessmentRecord[];
   onSelectAssessment: (record: AssessmentRecord) => void;
   onNavigate: (view: ViewType) => void;
+  onClearHistory: () => void;
 }
 
 export default function DashboardView({ 
   assessments, 
   onSelectAssessment, 
-  onNavigate 
+  onNavigate,
+  onClearHistory
 }: DashboardViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -78,6 +81,16 @@ export default function DashboardView({
           </p>
         </div>
         <div className="flex gap-3">
+          {assessments.length > 0 && (
+            <button
+              id="btn-clear-history"
+              onClick={onClearHistory}
+              className="flex items-center gap-2 px-4 py-2 bg-red-950/20 hover:bg-red-900/30 text-red-400 border border-red-500/20 hover:border-red-500/40 rounded-lg text-sm font-medium transition cursor-pointer"
+            >
+              <Trash2 size={16} />
+              Clear History
+            </button>
+          )}
           <button
             id="btn-nav-batch"
             onClick={() => onNavigate('batch')}
@@ -343,20 +356,40 @@ export default function DashboardView({
               >
                 &lt;
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  id={`btn-page-${page}`}
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`px-2.5 py-1 rounded border transition ${
-                    currentPage === page 
-                      ? "bg-blue-600 border-blue-600 text-white" 
-                      : "bg-[#1C1C1F] border-white/5 hover:bg-white/5 text-slate-300"
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
+              {(() => {
+                const range: (number | string)[] = [];
+                const delta = 2;
+                for (let i = 1; i <= totalPages; i++) {
+                  if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                    range.push(i);
+                  } else if (range[range.length - 1] !== "...") {
+                    range.push("...");
+                  }
+                }
+                return range.map((page, idx) => {
+                  if (page === "...") {
+                    return (
+                      <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-slate-600 select-none">
+                        ...
+                      </span>
+                    );
+                  }
+                  return (
+                    <button
+                      id={`btn-page-${page}`}
+                      key={`page-${page}`}
+                      onClick={() => setCurrentPage(page as number)}
+                      className={`px-2.5 py-1 rounded border transition cursor-pointer ${
+                        currentPage === page 
+                          ? "bg-blue-600 border-blue-600 text-white" 
+                          : "bg-[#1C1C1F] border-white/5 hover:bg-white/5 text-slate-300"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                });
+              })()}
               <button
                 id="btn-next-page"
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}

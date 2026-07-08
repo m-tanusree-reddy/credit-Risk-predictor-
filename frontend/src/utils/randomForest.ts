@@ -365,16 +365,26 @@ export function predictCreditRisk(applicant: ApplicantData): PredictionResult {
  * and fixes them if they are null, undefined or empty strings.
  */
 export function validateApplicantData(data: Partial<ApplicantData>): ApplicantData {
+  const parseNum = (val: any, fallback: number) => {
+    const n = Number(val);
+    return isNaN(n) ? fallback : n;
+  };
+  
+  const parseIntNum = (val: any, fallback: number) => {
+    const n = Number(val);
+    return isNaN(n) ? fallback : Math.round(n);
+  };
+
   return {
-    age: Number(data.age) || 45,
-    income: Number(data.income) || 6000,
-    dependents: Math.max(0, Number(data.dependents) || 0),
-    debtRatio: Math.max(0, Number(data.debtRatio) || 0.35),
-    openCreditLines: Math.max(0, Number(data.openCreditLines) || 8),
-    realEstateLoans: Math.max(0, Number(data.realEstateLoans) || 1),
-    creditUtilization: Math.max(0, Math.min(200, Number(data.creditUtilization) || 30)),
-    late3059: Math.max(0, Number(data.late3059) || 0),
-    late6089: Math.max(0, Number(data.late6089) || 0),
-    late90Plus: Math.max(0, Number(data.late90Plus) || 0),
+    age: Math.max(18, Math.min(120, parseIntNum(data.age, 45))),
+    income: Math.max(0, parseNum(data.income, 6000)),
+    dependents: Math.max(0, parseIntNum(data.dependents, 0)),
+    debtRatio: Math.max(0, parseNum(data.debtRatio, 0.35)),
+    openCreditLines: Math.max(0, parseIntNum(data.openCreditLines, 8)),
+    realEstateLoans: Math.max(0, parseIntNum(data.realEstateLoans, 1)),
+    creditUtilization: Math.max(0, Math.min(200, parseNum(data.creditUtilization, 30))),
+    late3059: Math.max(0, parseIntNum(data.late3059, 0)),
+    late6089: Math.max(0, parseIntNum(data.late6089, 0)),
+    late90Plus: Math.max(0, parseIntNum(data.late90Plus, 0)),
   };
 }

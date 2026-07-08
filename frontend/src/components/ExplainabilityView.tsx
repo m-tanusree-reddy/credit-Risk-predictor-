@@ -127,6 +127,14 @@ export default function ExplainabilityView({
             ? `${val} dependents increase overall non-discretionary household expenditures, adding slight risk (+${shapVal}%).`
             : "Minimal dependents reduce fixed household cash obligations, supporting credit buffer."
         };
+      case 'incomePerDependent':
+        return {
+          label: 'Income Per Dependent',
+          displayValue: `$${Math.round(val).toLocaleString()}`,
+          narrative: shapVal < 0 
+            ? `Healthy income per dependent of $${Math.round(val).toLocaleString()} indicates strong financial buffer for dependents, reducing risk (${shapVal}%).`
+            : `Low income per dependent of $${Math.round(val).toLocaleString()} increases household default vulnerability (+${shapVal}%).`
+        };
       default:
         return {
           label: key,
@@ -148,12 +156,16 @@ export default function ExplainabilityView({
 
   const driversList = Object.entries(prediction.shapValues)
     .map(([feature, val]) => {
-      const appVal = applicant[feature as keyof typeof applicant];
+      let appVal = applicant[feature as keyof typeof applicant];
+      if (feature === 'incomePerDependent' && appVal === undefined) {
+        appVal = applicant.income / (applicant.dependents + 1);
+      }
+      const finalVal = typeof appVal === 'number' ? appVal : 0;
       return {
         feature,
-        val: typeof appVal === 'number' ? appVal : 0,
+        val: finalVal,
         shap: val,
-        ...getFeatureDetails(feature, typeof appVal === 'number' ? appVal : 0, val)
+        ...getFeatureDetails(feature, finalVal, val)
       };
     })
     .sort((a, b) => b.shap - a.shap); // Positive contributions (risk drivers) first

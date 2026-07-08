@@ -41,12 +41,35 @@ export async function predictApplicant(applicant: ApplicantData): Promise<Predic
   }
 
   const result = await response.json();
-  const explanation = predictCreditRisk(applicant);
   const score = Math.round(Number(result.default_probability) * 1000) / 10;
+  const baseValue = Math.round(Number(result.base_value) * 1000) / 10;
+
+  const keyMapping: Record<string, string> = {
+    "RevolvingUtilizationOfUnsecuredLines": "creditUtilization",
+    "age": "age",
+    "NumberOfTime30-59DaysPastDueNotWorse": "late3059",
+    "DebtRatio": "debtRatio",
+    "MonthlyIncome": "income",
+    "NumberOfOpenCreditLinesAndLoans": "openCreditLines",
+    "NumberOfTimes90DaysLate": "late90Plus",
+    "NumberRealEstateLoansOrLines": "realEstateLoans",
+    "NumberOfTime60-89DaysPastDueNotWorse": "late6089",
+    "NumberOfDependents": "dependents",
+    "IncomePerDependent": "incomePerDependent"
+  };
+
+  const shapValues: Record<string, number> = {};
+  if (result.shap_values) {
+    Object.entries(result.shap_values).forEach(([key, val]) => {
+      const frontendKey = keyMapping[key] || key;
+      shapValues[frontendKey] = Math.round(Number(val) * 1000) / 10;
+    });
+  }
 
   return {
-    ...explanation,
     score,
     riskLevel: normalizeRiskLevel(result.risk_level),
+    baseValue,
+    shapValues,
   };
 }
