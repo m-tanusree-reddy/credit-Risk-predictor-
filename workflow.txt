@@ -93,15 +93,19 @@ a fast and mathematically exact tree interpreter algorithm in the backend:
   - Lifted the Batch Processing state (`batchResults` and `batchFileName`) up to `App.tsx` so that loaded CSV results persist when you switch between tabs.
   - Removed the default mock data seeding (`getInitialAssessments`) on initial load so the dashboard is completely clean by default.
   - Declared `handleClearHistory` to clear all local records.
+  - Updated `handleSelectAssessment` to fetch full risk attribution models (SHAP values) on-demand in ~10ms if they are empty, and sync the updated values back to assessments and localStorage.
 - **DashboardView.tsx**:
   - Added a "Clear History" button to let the user wipe out any local storage history.
   - Implemented a collapsed range pagination layout using ellipsis (`...`) to prevent buttons from overflowing on large portfolios (e.g. 100 pages).
 - **BatchView.tsx**:
   - Made the `Name` column in CSV imports optional.
-  - Added logic to automatically fallback to sequential naming (`Applicant #1`, `Applicant #2`, etc.) when no name column is found, allowing the system to seamlessly ingest standard machine learning datasets like Kaggle's "Give Me Some Credit" without error.
-  - Refined column index mapping patterns to prevent overlapping matches (e.g. `RevolvingUtilizationOfUnsecuredLines` was previously false-matching the `creditLines` column due to the `"Lines"` substring; we excluded `"revolving"` from the search pattern).
-  - Implemented a 500-row cap and **concurrent async execution** using `Promise.all` for CSV batch predictions. This processes the first 500 rows of large datasets (like Kaggle's 150k-row training set) in 1-2 seconds, preventing browser freezes and infinite loading states.
-  - Implemented a collapsed range pagination layout using ellipsis (`...`) showing current page +/- 2 and boundary pages to keep controls compact and centered inside the frame.
+  - Added logic to automatically fallback to sequential naming (`Applicant #1`, `Applicant #2`, etc.) when no name column is found (and ignoring unnamed index columns like `Unnamed: 0`), allowing the system to seamlessly ingest standard machine learning datasets.
+  - Refined column index mapping patterns to prevent overlapping matches (e.g. excluding `"revolving"` from matches with other lines).
+  - Implemented client-side CSV parsing using `FileReader` and on-the-fly capping to the first **500 rows** to maintain quick response times.
+  - Designed an interactive step-by-step progress tracking panel showing milestones (inspect, upload, score, compute).
+- **ExplainabilityView.tsx**:
+  - Added support for loading on-demand SHAP values by rendering a premium loading/calculating skeleton card while values are fetched from the API.
+  - Hooked the custom applicant dropdown list to `handleSelectAssessment` so search/dropdown selection also triggers on-demand SHAP loading.
 - **randomForest.ts**:
   - Enhanced `validateApplicantData` to parse and round all integer-typed features (age, dependents, open credit lines, mortgage loans, and delinquency counts). This prevents type-coercion exceptions in FastAPI's Pydantic parser (`int_from_float` errors).
 
