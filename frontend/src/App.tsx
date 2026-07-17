@@ -115,7 +115,7 @@ export default function App() {
       {/* Top Navbar */}
       <header className="h-16 border-b border-white/10 bg-[#111113] sticky top-0 z-50 px-4 md:px-8 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <img src="/favicon.jpg" alt="CREDINITY AI Logo" className="w-8 h-8 rounded-lg object-cover shadow-lg" />
+          <img src="/favicon.jpg" alt="CREDINITY AI Logo" className="w-8 h-8 object-contain shadow-lg" />
           <div>
             <h1 className="text-sm font-bold tracking-tight text-white font-mono flex items-center gap-1.5">
               CREDINITY <span className="text-blue-500">AI</span>
