@@ -1,0 +1,10 @@
+{
+  "name": "credit-risk-predictor-root",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@vercel/node": "^3.0.0",
+    "dotenv": "^17.2.3"
+  }
+}
