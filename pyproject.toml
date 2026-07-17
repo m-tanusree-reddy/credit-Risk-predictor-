@@ -1,7 +1,16 @@
 [project]
 name = "credit-risk-predictor"
 version = "0.1.0"
-dependencies = []
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pandas",
+    "joblib",
+    "scikit-learn",
+    "openpyxl",
+    "streamlit",
+    "requests"
+]
 
 [tool.vercel]
 entrypoint = "backend.main:app"
