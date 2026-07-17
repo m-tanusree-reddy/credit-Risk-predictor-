@@ -11,6 +11,11 @@ export interface AssessmentRecord {
   applicant: Applicant;
   prediction: PredictionResult;
   date: string;
+  loanAmount?: number;
+  loanPurpose?: string;
+  loanDuration?: number;
+  notes?: string;
 }
 
 export type ViewType = 'dashboard' | 'assessment' | 'batch' | 'explainability';
+

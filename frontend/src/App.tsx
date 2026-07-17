@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { AssessmentRecord, ViewType } from "./types";
+import { predictApplicant } from "./utils/api";
 import { getInitialAssessments } from "./utils/sampleData";
 import DashboardView from "./components/DashboardView";
 import AssessmentView from "./components/AssessmentView";
@@ -60,10 +61,46 @@ export default function App() {
     setSelectedRecord(null);
   };
 
-  // Select an assessment and jump to Explainability
-  const handleSelectAssessment = (record: AssessmentRecord) => {
+  // Select an assessment and jump to Explainability (with on-demand SHAP fetching)
+  const handleSelectAssessment = async (record: AssessmentRecord) => {
     setSelectedRecord(record);
     setActiveView('explainability');
+
+    // If SHAP values are empty, load them on-demand
+    if (!record.prediction.shapValues || Object.keys(record.prediction.shapValues).length === 0) {
+      try {
+        const fullResult = await predictApplicant(record.applicant);
+        
+        const updatedRecord: AssessmentRecord = {
+          ...record,
+          prediction: {
+            ...record.prediction,
+            shapValues: fullResult.shapValues,
+            baseValue: fullResult.baseValue,
+          }
+        };
+
+        setSelectedRecord(prev => prev && prev.id === record.id ? updatedRecord : prev);
+        setAssessments(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+        setBatchResults(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+
+        // Sync back to localStorage if permanent
+        const cached = localStorage.getItem("credit_assessments_records");
+        if (cached) {
+          try {
+            const list = JSON.parse(cached) as AssessmentRecord[];
+            if (list.some(r => r.id === record.id)) {
+              const updatedList = list.map(r => r.id === record.id ? updatedRecord : r);
+              localStorage.setItem("credit_assessments_records", JSON.stringify(updatedList));
+            }
+          } catch (e) {
+            console.error("LocalStorage write failed:", e);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load SHAP values on-demand:", err);
+      }
+    }
   };
 
   const navItems = [
@@ -85,13 +122,13 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-tight text-white font-mono flex items-center gap-1.5">
-              CREDIT<span className="text-blue-500">SENSE</span> AI
+              CREDINITY <span className="text-blue-500">AI</span>
               <span className="inline-flex px-1.5 py-0.2 bg-blue-500/10 text-blue-400 rounded text-[9px] font-mono border border-blue-500/20 font-medium">
-                MODEL
+                PRO
               </span>
             </h1>
             <p className="text-[9px] text-slate-500 font-mono tracking-wider uppercase hidden sm:block">
-              Credit Risk Prediction Dashboard
+              AI-Powered Credit Risk Assessment Platform
             </p>
           </div>
         </div>
@@ -125,7 +162,7 @@ export default function App() {
         <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
           <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-slate-400">FastAPI connected</span>
+            <span className="text-slate-400">API connected</span>
           </div>
         </div>
       </header>
@@ -198,7 +235,7 @@ export default function App() {
               <ExplainabilityView 
                 assessments={assessments}
                 selectedRecord={selectedRecord}
-                onSelectRecord={(rec) => setSelectedRecord(rec)}
+                onSelectRecord={handleSelectAssessment}
               />
             )}
           </motion.div>
@@ -207,17 +244,15 @@ export default function App() {
 
       {/* Bottom Status Bar */}
       <footer className="bg-[#111113] border-t border-white/10 flex flex-col md:flex-row items-center px-4 md:px-8 py-3 md:py-0 h-auto md:h-10 justify-between text-[10px] uppercase tracking-wider text-slate-500 font-mono shrink-0">
-        <div className="flex flex-col md:flex-row gap-2 md:gap-8 items-center">
+        <div className="flex flex-col md:flex-row gap-2 md:gap-8 items-center w-full justify-between">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> 
-            API: 127.0.0.1:8000
+            API Status: Backend Connected
           </span>
-          <span>Model: credit_risk_model.pkl</span>
-          <span>Frontend: React + Vite</span>
-          <span>Data: Give Me Some Credit</span>
-        </div>
-        <div className="mt-2 md:mt-0 text-center md:text-right">
-          (c) 2026 CreditSense AI | Credit Risk Predictor
+          <span>Backend: FastAPI</span>
+          <span>Model: Random Forest</span>
+          <span>Dataset: Give Me Some Credit</span>
+          <span>Version: v1.0</span>
         </div>
       </footer>
     </div>

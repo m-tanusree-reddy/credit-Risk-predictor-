@@ -46,8 +46,11 @@ async function startServer() {
       // Strip potential base64 prefix if the frontend sent it
       const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, "");
 
-      // Get the lazy-initialized Gemini client
-      const ai = getGeminiClient();
+      // Get API Key
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("GEMINI_API_KEY is not defined. Add it to frontend/.env to enable document extraction.");
+      }
 
       // System instruction for credit risk variables extraction
       const systemInstruction = `You are an expert loan underwriter and OCR parser. Your job is to extract financial data from the uploaded document (Bank Statement, Salary Slip, Credit Report, or Loan Application). 
@@ -57,62 +60,136 @@ Ensure names match the document exactly, and estimated monthly debtRatio is betw
 
       const promptText = `Analyze this uploaded credit assessment document (${fileName || "document"}). Extract the applicant details and financial metrics into the requested JSON schema.`;
 
-      // Define standard schema structure
-      const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING, description: "The full name of the applicant. If not found, use a realistic sample name." },
-          age: { type: Type.INTEGER, description: "The age of the applicant. Estimate or use a realistic number between 18 and 80 if not found." },
-          income: { type: Type.NUMBER, description: "Monthly income in dollars. If annual is found, divide by 12. Use a realistic estimate if not found." },
-          dependents: { type: Type.INTEGER, description: "Number of dependents. Default to 0 if not specified." },
-          debtRatio: { type: Type.NUMBER, description: "Debt-to-income ratio (between 0.0 and 1.5). Estimate based on monthly debts / monthly income if not directly stated. Default to 0.35 if not found." },
-          openCreditLines: { type: Type.INTEGER, description: "Number of open credit lines/accounts. Default to 8 if not found." },
-          realEstateLoans: { type: Type.INTEGER, description: "Number of real estate loans or mortgage lines. Default to 1 if not found." },
-          creditUtilization: { type: Type.NUMBER, description: "Credit utilization percentage (between 0.0 and 100.0). E.g. 35.5. Default to 30.0 if not found." },
-          late3059: { type: Type.INTEGER, description: "Number of times 30-59 days past due. Default to 0." },
-          late6089: { type: Type.INTEGER, description: "Number of times 60-89 days past due. Default to 0." },
-          late90Plus: { type: Type.INTEGER, description: "Number of times 90+ days past due. Default to 0." },
-          documentType: { type: Type.STRING, description: "Identified document type (e.g., 'Bank Statement', 'Salary Slip', 'Credit Report', 'Loan Application')." }
-        },
-        required: [
-          "name", "age", "income", "dependents", "debtRatio", 
-          "openCreditLines", "realEstateLoans", "creditUtilization", "late3059", 
-          "late6089", "late90Plus", "documentType"
-        ]
-      };
+      let parsedData;
 
-      const documentPart = {
-        inlineData: {
-          data: cleanBase64,
-          mimeType: mimeType
+      if (apiKey.startsWith("sk-or-")) {
+        const responseSchemaText = `{
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "description": "The full name of the applicant. If not found, use a realistic sample name." },
+            "age": { "type": "integer", "description": "The age of the applicant. Estimate or use a realistic number between 18 and 80 if not found." },
+            "income": { "type": "number", "description": "Monthly income in dollars. If annual is found, divide by 12. Use a realistic estimate if not found." },
+            "dependents": { "type": "integer", "description": "Number of dependents. Default to 0 if not specified." },
+            "debtRatio": { "type": "number", "description": "Debt-to-income ratio (between 0.0 and 1.5). Estimate based on monthly debts / monthly income if not directly stated. Default to 0.35 if not found." },
+            "openCreditLines": { "type": "integer", "description": "Number of open credit lines/accounts. Default to 8 if not found." },
+            "realEstateLoans": { "type": "integer", "description": "Number of real estate loans or mortgage lines. Default to 1 if not found." },
+            "creditUtilization": { "type": "number", "description": "Credit utilization percentage (between 0.0 and 100.0). E.g. 35.5. Default to 30.0 if not found." },
+            "late3059": { "type": "integer", "description": "Number of times 30-59 days past due. Default to 0." },
+            "late6089": { "type": "integer", "description": "Number of times 60-89 days past due. Default to 0." },
+            "late90Plus": { "type": "integer", "description": "Number of times 90+ days past due. Default to 0." },
+            "documentType": { "type": "string", "description": "Identified document type (e.g., 'Bank Statement', 'Salary Slip', 'Credit Report', 'Loan Application')." }
+          },
+          "required": [
+            "name", "age", "income", "dependents", "debtRatio", 
+            "openCreditLines", "realEstateLoans", "creditUtilization", "late3059", 
+            "late6089", "late90Plus", "documentType"
+          ]
+        }`;
+
+        // Call OpenRouter API
+        const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "https://github.com/m-tanusree-reddy/credit-Risk-predictor-",
+            "X-Title": "Credinity AI"
+          },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash", // Use Gemini 2.5 Flash on OpenRouter
+            messages: [
+              {
+                role: "system",
+                content: systemInstruction
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: promptText + "\nYou MUST return JSON matching this schema:\n" + responseSchemaText
+                  },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${mimeType};base64,${cleanBase64}`
+                    }
+                  }
+                ]
+              }
+            ],
+            response_format: { type: "json_object" }
+          })
+        });
+
+        if (!openRouterResponse.ok) {
+          const errText = await openRouterResponse.text();
+          throw new Error(`OpenRouter Error (${openRouterResponse.status}): ${errText}`);
         }
-      };
 
-      const textPart = {
-        text: promptText
-      };
+        const resJson = await openRouterResponse.json();
+        const jsonText = resJson.choices?.[0]?.message?.content?.trim() || "{}";
+        parsedData = JSON.parse(jsonText);
+      } else {
+        // Original Gemini Client SDK
+        const ai = getGeminiClient();
 
-      // Call Gemini 3.5 Flash for multimodal processing
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: { parts: [documentPart, textPart] },
-        config: {
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema
-        }
-      });
+        // Define standard schema structure for Google SDK
+        const responseSchema = {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING, description: "The full name of the applicant. If not found, use a realistic sample name." },
+            age: { type: Type.INTEGER, description: "The age of the applicant. Estimate or use a realistic number between 18 and 80 if not found." },
+            income: { type: Type.NUMBER, description: "Monthly income in dollars. If annual is found, divide by 12. Use a realistic estimate if not found." },
+            dependents: { type: Type.INTEGER, description: "Number of dependents. Default to 0 if not specified." },
+            debtRatio: { type: Type.NUMBER, description: "Debt-to-income ratio (between 0.0 and 1.5). Estimate based on monthly debts / monthly income if not directly stated. Default to 0.35 if not found." },
+            openCreditLines: { type: Type.INTEGER, description: "Number of open credit lines/accounts. Default to 8 if not found." },
+            realEstateLoans: { type: Type.INTEGER, description: "Number of real estate loans or mortgage lines. Default to 1 if not found." },
+            creditUtilization: { type: Type.NUMBER, description: "Credit utilization percentage (between 0.0 and 100.0). E.g. 35.5. Default to 30.0 if not found." },
+            late3059: { type: Type.INTEGER, description: "Number of times 30-59 days past due. Default to 0." },
+            late6089: { type: Type.INTEGER, description: "Number of times 60-89 days past due. Default to 0." },
+            late90Plus: { type: Type.INTEGER, description: "Number of times 90+ days past due. Default to 0." },
+            documentType: { type: Type.STRING, description: "Identified document type (e.g., 'Bank Statement', 'Salary Slip', 'Credit Report', 'Loan Application')." }
+          },
+          required: [
+            "name", "age", "income", "dependents", "debtRatio", 
+            "openCreditLines", "realEstateLoans", "creditUtilization", "late3059", 
+            "late6089", "late90Plus", "documentType"
+          ]
+        };
 
-      const jsonText = response.text?.trim() || "{}";
-      const parsedData = JSON.parse(jsonText);
+        const documentPart = {
+          inlineData: {
+            data: cleanBase64,
+            mimeType: mimeType
+          }
+        };
+
+        const textPart = {
+          text: promptText
+        };
+
+        // Call Gemini 3.5 Flash for multimodal processing
+        const response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: { parts: [documentPart, textPart] },
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema
+          }
+        });
+
+        const jsonText = response.text?.trim() || "{}";
+        parsedData = JSON.parse(jsonText);
+      }
 
       return res.json({ success: true, data: parsedData });
     } catch (error: any) {
       console.error("Gemini Extraction Error:", error);
       return res.status(500).json({ 
         success: false, 
-        error: error?.message || "Internal server error during document parsing",
-        details: "Ensure your GEMINI_API_KEY is configured in Settings > Secrets."
+        error: "AI document extraction is currently unavailable. You can continue by entering applicant information manually."
       });
     }
   });
