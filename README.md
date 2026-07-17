@@ -39,3 +39,11 @@ To point the frontend at a different API host, create `frontend/.env.local`:
 ```text
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
+
+## Key Features & Optimizations
+
+- **On-Demand Explainability (SHAP)**: Batch predictions score risk levels near-instantly, while detailed Tree SHAP explainability charts and narratives are loaded on-demand (~10ms) when clicking "Explain SHAP" on any applicant.
+- **Client-Side CSV Parsing & Capping**: Replaced file uploads with fast client-side CSV parsing, capping inputs to the first 500 rows to prevent CPU bottlenecks and browser timeouts.
+- **Detailed Progress Checklist**: Shows step-by-step progress status during file parsing, API submission, and scoring.
+- **Auto Name Cleaning**: Excludes index/system columns (like `Unnamed: 0`) from applicant names, defaulting to clean, structured IDs when name metadata is missing.
+
