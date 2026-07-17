@@ -290,6 +290,7 @@ export default function DashboardView({
                 <tr className="border-b border-white/5 text-slate-500 font-mono uppercase text-[10px] tracking-wider">
                   <th className="py-3 px-4">ID</th>
                   <th className="py-3 px-4">Applicant Name</th>
+                  <th className="py-3 px-4">Loan Request</th>
                   <th className="py-3 px-4">Default Prob.</th>
                   <th className="py-3 px-4">Risk Level</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -308,6 +309,12 @@ export default function DashboardView({
                       </td>
                       <td className="py-3 px-4 text-slate-200 font-medium">
                         {record.applicant.name}
+                      </td>
+                      <td className="py-3 px-4 text-slate-300 font-mono">
+                        {record.loanAmount ? `$${record.loanAmount.toLocaleString()}` : "—"}
+                        <span className="block text-[10px] text-slate-500 font-sans mt-0.5">
+                          {record.loanPurpose || "—"}
+                        </span>
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-100 font-semibold">
                         {record.prediction.score}%
@@ -332,7 +339,7 @@ export default function DashboardView({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
+                    <td colSpan={6} className="py-8 text-center text-slate-500">
                       No assessment history matching query.
                     </td>
                   </tr>

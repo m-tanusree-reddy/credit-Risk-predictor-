@@ -10,7 +10,8 @@ import {
   User, 
   TrendingUp, 
   TrendingDown,
-  Calendar
+  Calendar,
+  Loader2
 } from "lucide-react";
 
 interface ExplainabilityViewProps {
@@ -43,6 +44,7 @@ export default function ExplainabilityView({
   }
 
   const { applicant, prediction } = activeRecord;
+  const isShapLoading = !prediction.shapValues || Object.keys(prediction.shapValues).length === 0;
 
   // Feature label and explanation dictionary based on value and contributions
   const getFeatureDetails = (key: string, val: number, shapVal: number) => {
@@ -277,111 +279,125 @@ export default function ExplainabilityView({
         </div>
       </div>
 
-      {/* SHAP Waterfall Attribution Graphic Chart */}
-      <div className="bg-[#161618] border border-white/5 rounded-2xl p-5 space-y-4" id="shap-waterfall-card">
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 font-mono">Local Attribution Waterfall</h2>
-          <p className="text-xs text-slate-400 mt-1 font-sans">
-            Visualizing how credit features shift probability from the baseline average ({prediction.baseValue}%) to the applicant&apos;s final default score ({prediction.score}%).
-          </p>
+      {isShapLoading ? (
+        <div className="bg-[#161618] border border-white/5 rounded-2xl p-12 text-center flex flex-col items-center justify-center space-y-4" id="shap-loading-card">
+          <Loader2 className="animate-spin text-blue-500" size={32} />
+          <div>
+            <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest font-mono">Calculating Decision Explanations</h3>
+            <p className="text-[10px] text-slate-500 max-w-xs mx-auto mt-2 leading-relaxed">
+              Running applicant financial metrics down 200 random forest trees to compute exact Shapley (SHAP) attributions on-demand.
+            </p>
+          </div>
         </div>
+      ) : (
+        <>
+          {/* SHAP Waterfall Attribution Graphic Chart */}
+          <div className="bg-[#161618] border border-white/5 rounded-2xl p-5 space-y-4" id="shap-waterfall-card">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 font-mono">Local Attribution Waterfall</h2>
+              <p className="text-xs text-slate-400 mt-1 font-sans">
+                Visualizing how credit features shift probability from the baseline average ({prediction.baseValue}%) to the applicant&apos;s final default score ({prediction.score}%).
+              </p>
+            </div>
 
-        {/* Custom SVG Waterfall Chart */}
-        <div className="space-y-3.5 py-2" id="shap-waterfall-graphic">
-          {driversList.map((driver) => {
-            const isPositive = driver.shap > 0;
-            const percentageWidth = Math.min((Math.abs(driver.shap) / maxAbsShap) * 100, 100);
-            
-            return (
-              <div key={driver.feature} className="grid grid-cols-1 md:grid-cols-12 items-center gap-2 text-xs">
-                {/* Feature Name */}
-                <div className="md:col-span-3 text-slate-300 font-medium font-mono truncate">
-                  {driver.label}
-                </div>
-
-                {/* Actual Value */}
-                <div className="md:col-span-2 text-slate-500 font-mono">
-                  Val: <span className="text-slate-300 font-semibold">{driver.displayValue}</span>
-                </div>
-
-                {/* Graphical bar */}
-                <div className="md:col-span-5 flex items-center h-4 relative">
-                  {/* Baseline indicator line in the center */}
-                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/5" />
-                  
-                  {isPositive ? (
-                    // Red bar pushing right (increased risk)
-                    <div className="w-1/2 ml-[50%] flex justify-start">
-                      <div 
-                        style={{ width: `${percentageWidth / 2}%` }} 
-                        className="h-3.5 bg-red-500/80 rounded-r border-r border-red-400/50 hover:bg-red-500 transition-all duration-500" 
-                      />
-                    </div>
-                  ) : (
-                    // Green bar pushing left (decreased risk)
-                    <div className="w-1/2 mr-[50%] flex justify-end">
-                      <div 
-                        style={{ width: `${percentageWidth / 2}%` }} 
-                        className="h-3.5 bg-green-500/80 rounded-l border-l border-green-400/50 hover:bg-green-500 transition-all duration-500" 
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* SHAP numerical value */}
-                <div className={`md:col-span-2 font-mono text-right font-bold ${isPositive ? 'text-red-400' : 'text-green-400'}`}>
-                  {isPositive ? `+${driver.shap}%` : `${driver.shap}%`}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-3 border-t border-white/5">
-          <span>&larr; REDUCES RISK (GREEN)</span>
-          <span>BASELINE expectation = {prediction.baseValue}%</span>
-          <span>ELEVATES RISK (RED) &rarr;</span>
-        </div>
-      </div>
-
-      {/* Feature Narrative Breakdown */}
-      <div className="bg-[#161618] border border-white/5 rounded-2xl p-5 space-y-4" id="shap-narrative-card">
-        <div className="flex items-center gap-2">
-          <Info size={16} className="text-blue-500" />
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 font-mono">Decisions &amp; Underwriting Explanations</h2>
-        </div>
-
-        <div className="divide-y divide-white/5" id="shap-narrative-list">
-          {driversList.map((driver) => {
-            const isRiskIncreaser = driver.shap > 0;
-            return (
-              <div key={driver.feature} className="py-3 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-start gap-3">
-                <div className="md:w-1/4 shrink-0">
-                  <span className="text-xs font-semibold text-slate-200 block">{driver.label}</span>
-                  <span className="text-[10px] font-mono text-slate-500 block mt-0.5">Value: {driver.displayValue}</span>
-                </div>
+            {/* Custom SVG Waterfall Chart */}
+            <div className="space-y-3.5 py-2" id="shap-waterfall-graphic">
+              {driversList.map((driver) => {
+                const isPositive = driver.shap > 0;
+                const percentageWidth = Math.min((Math.abs(driver.shap) / maxAbsShap) * 100, 100);
                 
-                <div className="flex-1 text-xs text-slate-400 leading-relaxed font-sans">
-                  {driver.narrative}
-                </div>
+                return (
+                  <div key={driver.feature} className="grid grid-cols-1 md:grid-cols-12 items-center gap-2 text-xs">
+                    {/* Feature Name */}
+                    <div className="md:col-span-3 text-slate-300 font-medium font-mono truncate">
+                      {driver.label}
+                    </div>
 
-                <div className="shrink-0 flex items-center gap-1 font-mono font-bold text-xs">
-                  {driver.shap !== 0 ? (
-                    <>
-                      <span className={isRiskIncreaser ? 'text-red-400' : 'text-green-400'}>
-                        {isRiskIncreaser ? <ArrowUpRight size={14} className="inline mr-0.5" /> : <ArrowDownRight size={14} className="inline mr-0.5" />}
-                        {isRiskIncreaser ? '+' : ''}{driver.shap}%
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-slate-600">Neutral</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+                    {/* Actual Value */}
+                    <div className="md:col-span-2 text-slate-500 font-mono">
+                      Val: <span className="text-slate-300 font-semibold">{driver.displayValue}</span>
+                    </div>
+
+                    {/* Graphical bar */}
+                    <div className="md:col-span-5 flex items-center h-4 relative">
+                      {/* Baseline indicator line in the center */}
+                      <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/5" />
+                      
+                      {isPositive ? (
+                        // Red bar pushing right (increased risk)
+                        <div className="w-1/2 ml-[50%] flex justify-start">
+                          <div 
+                            style={{ width: `${percentageWidth / 2}%` }} 
+                            className="h-3.5 bg-red-500/80 rounded-r border-r border-red-400/50 hover:bg-red-500 transition-all duration-500" 
+                          />
+                        </div>
+                      ) : (
+                        // Green bar pushing left (decreased risk)
+                        <div className="w-1/2 mr-[50%] flex justify-end">
+                          <div 
+                            style={{ width: `${percentageWidth / 2}%` }} 
+                            className="h-3.5 bg-green-500/80 rounded-l border-l border-green-400/50 hover:bg-green-500 transition-all duration-500" 
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SHAP numerical value */}
+                    <div className={`md:col-span-2 font-mono text-right font-bold ${isPositive ? 'text-red-400' : 'text-green-400'}`}>
+                      {isPositive ? `+${driver.shap}%` : `${driver.shap}%`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between items-center text-[10px] font-mono text-slate-500 pt-3 border-t border-white/5">
+              <span>&larr; REDUCES RISK (GREEN)</span>
+              <span>BASELINE expectation = {prediction.baseValue}%</span>
+              <span>ELEVATES RISK (RED) &rarr;</span>
+            </div>
+          </div>
+
+          {/* Feature Narrative Breakdown */}
+          <div className="bg-[#161618] border border-white/5 rounded-2xl p-5 space-y-4" id="shap-narrative-card">
+            <div className="flex items-center gap-2">
+              <Info size={16} className="text-blue-500" />
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 font-mono">Decisions &amp; Underwriting Explanations</h2>
+            </div>
+
+            <div className="divide-y divide-white/5" id="shap-narrative-list">
+              {driversList.map((driver) => {
+                const isRiskIncreaser = driver.shap > 0;
+                return (
+                  <div key={driver.feature} className="py-3 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-start gap-3">
+                    <div className="md:w-1/4 shrink-0">
+                      <span className="text-xs font-semibold text-slate-200 block">{driver.label}</span>
+                      <span className="text-[10px] font-mono text-slate-500 block mt-0.5">Value: {driver.displayValue}</span>
+                    </div>
+                    
+                    <div className="flex-1 text-xs text-slate-400 leading-relaxed font-sans">
+                      {driver.narrative}
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-1 font-mono font-bold text-xs">
+                      {driver.shap !== 0 ? (
+                        <>
+                          <span className={isRiskIncreaser ? 'text-red-400' : 'text-green-400'}>
+                            {isRiskIncreaser ? <ArrowUpRight size={14} className="inline mr-0.5" /> : <ArrowDownRight size={14} className="inline mr-0.5" />}
+                            {isRiskIncreaser ? '+' : ''}{driver.shap}%
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-600">Neutral</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

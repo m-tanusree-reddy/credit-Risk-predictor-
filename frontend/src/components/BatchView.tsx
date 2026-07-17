@@ -1,8 +1,7 @@
 import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AssessmentRecord, ViewType } from "../types";
-import { validateApplicantData } from "../utils/randomForest";
-import { predictApplicant } from "../utils/api";
+import { predictBatch } from "../utils/api";
 import { 
   Upload, 
   Download, 
@@ -39,6 +38,12 @@ export default function BatchView({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [steps, setSteps] = useState<{
+    id: number;
+    label: string;
+    status: 'pending' | 'active' | 'completed' | 'error';
+    details?: string;
+  }[]>([]);
   
   // Download a beautiful, ready-to-use sample CSV
   const handleDownloadSampleCsv = () => {
@@ -60,114 +65,109 @@ export default function BatchView({
     document.body.removeChild(link);
   };
 
-  // CSV parsing logic inside the client (100% robust and reliable)
+  // CSV upload handler (single request, processed completely on the server)
   const handleCsvProcess = async (file: File) => {
+    setErrorMsg(null);
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setErrorMsg("AI batch processing is restricted to CSV files only. Please upload a valid applicant spreadsheet.");
+      setIsProcessing(false);
+      setFileName(null);
+      return;
+    }
     setFileName(file.name);
     setIsProcessing(true);
-    setErrorMsg(null);
+    
+    const initialSteps = [
+      { id: 1, label: "Inspect & Parse CSV File", status: 'active' as const, details: "Reading spreadsheet content..." },
+      { id: 2, label: "Submit to FastAPI Backend", status: 'pending' as const },
+      { id: 3, label: "Execute Ensemble Model (200 Trees)", status: 'pending' as const },
+      { id: 4, label: "Compute Tree SHAP Attributions", status: 'pending' as const },
+    ];
+    setSteps(initialSteps);
 
     const reader = new FileReader();
-    reader.readAsText(file);
+    reader.onerror = () => {
+      setErrorMsg("Failed to read the local CSV file.");
+      setIsProcessing(false);
+      setSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' as const, details: "Read error" } : s));
+    };
+
     reader.onload = async (e) => {
+      let timer1: any;
+      let timer2: any;
       try {
         const text = e.target?.result as string;
-        if (!text) throw new Error("Empty CSV file content.");
-
-        const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-        if (lines.length < 2) throw new Error("CSV does not contain header or data lines.");
-
-        // Parse headers and map columns by flexible casing and naming variations
-        const headers = lines[0].split(",").map(h => h.trim().replace(/^["']|["']$/g, "").toLowerCase());
-        
-        const colMap = {
-          name: headers.findIndex(h => h.includes("name") || h.includes("applicant")),
-          age: headers.findIndex(h => h.includes("age")),
-          income: headers.findIndex(h => h.includes("income") || h.includes("salary")),
-          dependents: headers.findIndex(h => h.includes("dependent") || h.includes("dep")),
-          debtRatio: headers.findIndex(h => h.includes("debt") || h.includes("ratio")),
-          creditLines: headers.findIndex(h => h.includes("open") || (h.includes("line") && !h.includes("revolving") && !h.includes("real") && !h.includes("estate"))),
-          realEstateLoans: headers.findIndex(h => h.includes("real") || h.includes("estate") || h.includes("mortgage")),
-          utilization: headers.findIndex(h => h.includes("util") || h.includes("revolving") || h.includes("percent")),
-          late30: headers.findIndex(h => h.includes("30") || h.includes("late30")),
-          late60: headers.findIndex(h => h.includes("60") || h.includes("late60")),
-          late90: headers.findIndex(h => h.includes("90") || h.includes("late90") || h.includes("severe")),
-        };
-
-        // Basic verification (verify that we have parsed some headers)
-        if (headers.length === 0) {
-          throw new Error("CSV file does not contain any headers.");
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== "");
+        if (lines.length <= 1) {
+          throw new Error("The uploaded CSV file is empty or only contains headers.");
         }
 
-        const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+        const header = lines[0];
+        const rawRowCount = lines.length - 1;
 
-        // Cap data rows to 500 for UI/network speed. Kaggle has 150k lines.
-        const maxDataRows = 500;
-        const totalRows = lines.length - 1;
-        if (totalRows > maxDataRows) {
-          alert(`The uploaded file contains ${totalRows.toLocaleString()} rows. To prevent network congestion and browser crash, only the first ${maxDataRows} records will be processed.`);
+        let fileToUpload = file;
+        let details = `Detected ${rawRowCount} applicant records.`;
+
+        if (rawRowCount > 500) {
+          details += ` Capping to first 500 rows for system performance.`;
+          const cappedLines = [header, ...lines.slice(1, 501)];
+          const cappedCsv = cappedLines.join("\n");
+          const blob = new Blob([cappedCsv], { type: "text/csv" });
+          fileToUpload = new File([blob], file.name, { type: "text/csv" });
         }
 
-        const dataLines = lines.slice(1, maxDataRows + 1);
+        // Update Step 1 -> completed, Step 2 -> active
+        setSteps(prev => prev.map(s => 
+          s.id === 1 ? { ...s, status: 'completed' as const, details } : 
+          s.id === 2 ? { ...s, status: 'active' as const, details: `Uploading ${Math.min(rawRowCount, 500)} rows...` } : 
+          s
+        ));
 
-        // Map and validate raw data first
-        const rawRows = dataLines.map((line, idx) => {
-          const rowValues = line.split(",").map(val => val.trim().replace(/^["']|["']$/g, ""));
-          const i = idx + 1; // row index
-          return {
-            name: (colMap.name !== -1 && rowValues[colMap.name]) ? rowValues[colMap.name] : `Applicant #${i}`,
-            rawData: {
-              age: colMap.age !== -1 ? Number(rowValues[colMap.age]) : 45,
-              income: colMap.income !== -1 ? Number(rowValues[colMap.income]) : 6000,
-              dependents: colMap.dependents !== -1 ? Number(rowValues[colMap.dependents]) : 0,
-              debtRatio: colMap.debtRatio !== -1 ? Number(rowValues[colMap.debtRatio]) : 0.35,
-              openCreditLines: colMap.creditLines !== -1 ? Number(rowValues[colMap.creditLines]) : 8,
-              realEstateLoans: colMap.realEstateLoans !== -1 ? Number(rowValues[colMap.realEstateLoans]) : 1,
-              creditUtilization: colMap.utilization !== -1 ? Number(rowValues[colMap.utilization]) : 30.0,
-              late3059: colMap.late30 !== -1 ? Number(rowValues[colMap.late30]) : 0,
-              late6089: colMap.late60 !== -1 ? Number(rowValues[colMap.late60]) : 0,
-              late90Plus: colMap.late90 !== -1 ? Number(rowValues[colMap.late90]) : 0,
-            }
-          };
-        });
+        // Start progressive timers for user visibility while fetch runs
+        timer1 = setTimeout(() => {
+          setSteps(prev => prev.map(s => 
+            s.id === 2 ? { ...s, status: 'completed' as const } : 
+            s.id === 3 ? { ...s, status: 'active' as const, details: "Running 200 random forest estimators..." } : 
+            s
+          ));
+        }, 800);
 
-        const validatedRows = rawRows.map(r => ({
-          name: r.name,
-          validated: validateApplicantData(r.rawData)
-        }));
+        timer2 = setTimeout(() => {
+          setSteps(prev => prev.map(s => 
+            s.id === 3 ? { ...s, status: 'completed' as const } : 
+            s.id === 4 ? { ...s, status: 'active' as const, details: "Computing local feature SHAP values..." } : 
+            s
+          ));
+        }, 1800);
 
-        // Execute all predictions concurrently using Promise.all
-        const assessmentsToCreate = await Promise.all(
-          validatedRows.map(async (row, idx) => {
-            const batchId = `APP-B${1000 + idx + 1}`;
-            const prediction = await predictApplicant(row.validated);
-            return {
-              id: batchId,
-              applicant: {
-                id: batchId,
-                name: row.name,
-                ...row.validated,
-                date: timestamp
-              },
-              prediction,
-              date: timestamp
-            } as AssessmentRecord;
-          })
-        );
+        // Actual API Call
+        const results = await predictBatch(fileToUpload);
 
-        if (assessmentsToCreate.length === 0) {
-          throw new Error("No valid applicant rows were processed from the CSV.");
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+
+        // Mark all steps as complete
+        setSteps(prev => prev.map(s => ({ ...s, status: 'completed' as const })));
+        await new Promise(resolve => setTimeout(resolve, 400));
+
+        if (results.length === 0) {
+          throw new Error("No valid applicant records were returned from the batch processing server.");
         }
 
-        // Save batch to main store and locally
-        onAddAssessmentsBatch(assessmentsToCreate);
-        setBatchResults(assessmentsToCreate);
+        onAddAssessmentsBatch(results);
+        setBatchResults(results);
         setCurrentPage(1);
         setIsProcessing(false);
       } catch (err: any) {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
         setIsProcessing(false);
-        setErrorMsg(err?.message || "Failed to parse CSV file. Ensure columns are separated by commas.");
+        setSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' as const, details: err?.message || "Failed" } : s));
+        setErrorMsg(err?.message || "Unable to process batch assessment. Please try again.");
       }
     };
+
+    reader.readAsText(file);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -265,21 +265,55 @@ export default function BatchView({
             accept=".csv"
             className="hidden"
           />
-          <div className="p-3 bg-[#161618] border border-white/5 rounded-lg text-blue-500">
-            {isProcessing ? (
-              <Loader2 className="animate-spin" size={24} />
-            ) : (
-              <Upload size={24} />
-            )}
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-slate-300">
-              {isProcessing ? "Underwriting Portfolio..." : "Drag & drop or click to upload applicant CSV"}
-            </p>
-            <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">
-              MAXIMUM FILE SIZE: 50MB | UP TO 10,000 ROWS
-            </p>
-          </div>
+          {isProcessing ? (
+            <div className="w-full max-w-sm py-4 text-left space-y-3.5 bg-[#1C1C1F]/60 border border-white/5 p-5 rounded-2xl">
+              <p className="text-xs font-mono uppercase tracking-widest text-slate-400 font-semibold mb-2">
+                Batch Underwriting Progress
+              </p>
+              <div className="space-y-3">
+                {steps.map((step) => {
+                  const isActive = step.status === 'active';
+                  const isCompleted = step.status === 'completed';
+                  const isError = step.status === 'error';
+                  
+                  return (
+                    <div key={step.id} className="flex items-start gap-3 text-xs">
+                      <div className="mt-0.5">
+                        {isCompleted && <CheckCircle size={14} className="text-emerald-400 shrink-0" />}
+                        {isActive && <Loader2 size={14} className="text-blue-500 animate-spin shrink-0" />}
+                        {step.status === 'pending' && <div className="w-3.5 h-3.5 rounded-full border border-slate-700 shrink-0" />}
+                        {isError && <AlertCircle size={14} className="text-red-400 shrink-0" />}
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className={`font-medium ${isActive ? "text-slate-100 font-semibold" : isCompleted ? "text-slate-300" : isError ? "text-red-400 font-semibold" : "text-slate-500"}`}>
+                          {step.label}
+                        </p>
+                        {step.details && (
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {step.details}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="p-3 bg-[#161618] border border-white/5 rounded-lg text-blue-500">
+                <Upload size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-300">
+                  Drag & drop or click to upload applicant CSV
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">
+                  MAXIMUM FILE SIZE: 50MB | UP TO 500 ROWS
+                </p>
+              </div>
+            </>
+          )}
           {fileName && (
             <div className="px-3 py-1 bg-[#161618] rounded border border-white/5 flex items-center gap-2 text-xs font-mono text-slate-400">
               <FileSpreadsheet size={12} className="text-emerald-400" />
